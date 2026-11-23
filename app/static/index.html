@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>НейроКоманда — локальная мультиагентная система</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>🧠 НейроКоманда</h1>
+  <div class="chips">
+    <span id="chip-ollama" class="chip">Ollama: …</span>
+    <span id="chip-memory" class="chip">Память: …</span>
+    <span id="chip-wl" class="chip" title="Белый список папок">📁 …</span>
+    <span id="chip-demo" class="chip warn hidden">🎭 демо</span>
+  </div>
+  <div class="hdr-btns">
+    <button id="btn-memory" title="Стереть все воспоминания RAG">🗑 Очистить память</button>
+    <button id="btn-xls" title="Скачать рабочую таблицу XLS">📊 Отчёт XLS</button>
+    <button id="btn-sound" title="Уведомления со звуком">🔔 Звук: вкл</button>
+  </div>
+</header>
+
+<main>
+  <section id="left">
+    <div id="feed"></div>
+    <div id="taskbar">
+      <textarea id="task" rows="2" placeholder="Напиши задачу Оркестратору… Например: «Найди цены на видеокарты и сохрани сводку в файл»"></textarea>
+      <button id="btn-send">Отправить ➤</button>
+    </div>
+  </section>
+
+  <section id="right">
+    <div id="eye-wrap">
+      <div id="eye-placeholder">👁 Глаз браузера<br><span>здесь появится экран агента,<br>когда он выйдет в интернет</span></div>
+      <img id="eye" class="hidden" alt="экран браузера агента">
+      <div id="eye-caption"></div>
+    </div>
+    <div id="log"></div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
