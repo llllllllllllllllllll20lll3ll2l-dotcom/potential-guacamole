@@ -13,7 +13,9 @@ _ROLE_BY_MODEL = {v: k for k, v in config.MODELS.items()}
 async def _post(path: str, payload: dict) -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
         r = await c.post(config.OLLAMA_URL + path, json=payload)
-        r.raise_for_status()
+        if r.status_code >= 400:
+            # показываем настоящую причину ошибки Ollama, а не голый код HTTP
+            raise RuntimeError(f"Ollama {r.status_code}: {r.text[:300]}")
         return r.json()
 
 
@@ -39,7 +41,7 @@ async def loaded_models() -> list[str]:
         return []
 
 
-async def chat(role: str, messages: list[dict], keep_alive: str | None = None) -> str:
+async def chat(role: str, messages: list[dict], keep_alive: str | int | None = None) -> str:
     model = config.MODELS.get(role, role)
     if config.DEMO_MODE:
         return _demo_chat(model, messages)
@@ -50,9 +52,14 @@ async def chat(role: str, messages: list[dict], keep_alive: str | None = None) -
         "format": "json",
         "options": {"temperature": 0.2, "num_ctx": 8192},
     }
-    if keep_alive:
+    if keep_alive is not None:
         payload["keep_alive"] = keep_alive
-    data = await _post("/api/chat", payload)
+    try:
+        data = await _post("/api/chat", payload)
+    except RuntimeError:
+        # запасной минимальный запрос: вдруг сборка Ollama не любит format/keep_alive
+        data = await _post("/api/chat",
+                           {"model": model, "messages": messages, "stream": False})
     return data["message"]["content"]
 
 
@@ -66,7 +73,7 @@ async def embed(text: str) -> list[float]:
     return data.get("embedding", [])
 
 
-async def preload(role: str, keep_alive: str) -> None:
+async def preload(role: str, keep_alive: str | int) -> None:
     """Загрузить модель в память (пустой запрос)."""
     if config.DEMO_MODE:
         return
