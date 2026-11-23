@@ -1,20 +1,27 @@
 @echo off
-chcp 65001 >nul
 cd /d "%~dp0"
-echo === ╨Э╨╡╨╣╤А╨╛╨Ъ╨╛╨╝╨░╨╜╨┤╨░: ╤Г╤Б╤В╨░╨╜╨╛╨▓╨║╨░ ===
-where python >nul 2>nul || (echo ╨Э╤Г╨╢╨╡╨╜ Python 3.10+ : https://www.python.org/downloads/ & pause & exit /b 1)
-if not exist .venv (
-  echo ╨б╨╛╨╖╨┤╨░╤О ╨╛╨║╤А╤Г╨╢╨╡╨╜╨╕╨╡ .venv ...
+echo === НейроКоманда: установка ===
+where python >nul 2>nul || goto nopython
+if not exist .venv\ (
+  echo Создаю окружение .venv ...
   python -m venv .venv
 )
 call .venv\Scripts\activate.bat
-echo ╨г╤Б╤В╨░╨╜╨░╨▓╨╗╨╕╨▓╨░╤О ╨╖╨░╨▓╨╕╤Б╨╕╨╝╨╛╤Б╤В╨╕ ...
+echo Устанавливаю зависимости ...
 python -m pip install --upgrade pip >nul
 pip install -r requirements.txt
-echo ╨г╤Б╤В╨░╨╜╨░╨▓╨╗╨╕╨▓╨░╤О ╨▒╤А╨░╤Г╨╖╨╡╤А ╨┤╨╗╤П ╨░╨│╨╡╨╜╤В╨╛╨▓ (Playwright Chromium) ...
+echo Ставлю браузер агентов: Playwright Chromium ...
 playwright install chromium
 echo.
-echo === ╨Ч╨░╨┐╤Г╤Б╨║ ===
-echo ╨Ш╨╜╤В╨╡╤А╤Д╨╡╨╣╤Б ╨╛╤В╨║╤А╨╛╨╡╤В╤Б╤П ╨▓ ╨▒╤А╨░╤Г╨╖╨╡╤А╨╡: http://127.0.0.1:8000
+echo === Запуск: интерфейс откроется на http://127.0.0.1:8000 ===
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 pause
+exit /b 0
+
+:nopython
+echo НЕ НАШЁЛ Python в PATH!
+echo Скачай Python 3.10 или новее: https://www.python.org/downloads/
+echo При установке ОБЯЗАТЕЛЬНО отметь галочку Add python.exe to PATH
+echo Затем открой НОВУЮ консоль и запусти run.bat снова.
+pause
+exit /b 1
