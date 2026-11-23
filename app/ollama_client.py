@@ -35,8 +35,15 @@ async def loaded_models() -> list[str]:
     if config.DEMO_MODE:
         return [config.MODELS["orchestrator"]]
     try:
-        data = await _post("/api/ps", {})
-        return [m.get("name", "") for m in data.get("models", [])]
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as c:
+            r = await c.get(config.OLLAMA_URL + "/api/ps")
+            r.raise_for_status()
+            data = r.json()
+        names = []
+        for m in data.get("models", []):
+            n = m.get("name", "")
+            names.append(n[:-7] if n.endswith(":latest") else n)
+        return names
     except Exception:
         return []
 

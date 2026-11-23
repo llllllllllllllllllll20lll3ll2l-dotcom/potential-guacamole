@@ -93,13 +93,30 @@ class BrowserManager:
 
     def _loc(self, target: str):
         t = (target or "").strip()
-        if t.startswith("text:"):
+        low = t.lower()
+        # лечим типовые ошибки моделей: css:: / css= / text= / дубли префиксов
+        if low.startswith("css:"):
+            rest = t[4:]
+            while rest.startswith(":"):
+                rest = rest[1:]
+            return self.page.locator(rest).first
+        if low.startswith("css="):
+            return self.page.locator(t[4:].strip()).first
+        if low.startswith("text:"):
             return self.page.get_by_text(t[5:].strip()).first
-        if t.startswith("ph:"):
+        if low.startswith("text="):
+            return self.page.get_by_text(t[5:].strip()).first
+        if low.startswith("ph:"):
             return self.page.get_by_placeholder(t[3:].strip()).first
-        if t.startswith("text="):
-            return self.page.get_by_text(t[5:].strip()).first
         return self.page.locator(t).first
+
+    @staticmethod
+    def _bad_target(e: Exception, target: str) -> dict:
+        return {"obs": (f"⚠ Не вышло с целью «{target}»: {str(e).splitlines()[0][:160]}. "
+                        "Форматы цели: «text:Текст кнопки», «css=#id», «css=.class», "
+                        "«ph:Плейсхолдер». Выбери другую цель, прочитай страницу "
+                        "(browser_text) или верни final с собранной информацией."),
+                "shot": None}
 
     def search(self, query: str) -> dict:
         self.page.goto(SEARCH_URL + quote_plus(query))
@@ -127,23 +144,29 @@ class BrowserManager:
                 "shot": self._shot()}
 
     def click(self, target: str) -> dict:
-        loc = self._loc(target)
-        try:  # подсветка клика — пользователь видит, КУДА нажали
-            loc.evaluate("e=>{e.style.outline='3px solid red';"
-                         "setTimeout(()=>e.style.outline='',1500);}")
-        except Exception:
-            pass
-        loc.click()
-        self.page.wait_for_load_state("domcontentloaded")
+        try:
+            loc = self._loc(target)
+            try:  # подсветка клика — пользователь видит, КУДА нажали
+                loc.evaluate("e=>{e.style.outline='3px solid red';"
+                             "setTimeout(()=>e.style.outline='',1500);}")
+            except Exception:
+                pass
+            loc.click()
+            self.page.wait_for_load_state("domcontentloaded")
+        except Exception as e:
+            return self._bad_target(e, target)
         return {"obs": f"Клик по: {target} (страница: {self.page.title()})",
                 "shot": self._shot()}
 
     def type_text(self, target: str, text: str, submit: bool = False) -> dict:
-        loc = self._loc(target)
-        loc.fill(text)
-        if submit:
-            loc.press("Enter")
-            self.page.wait_for_load_state("domcontentloaded")
+        try:
+            loc = self._loc(target)
+            loc.fill(text)
+            if submit:
+                loc.press("Enter")
+                self.page.wait_for_load_state("domcontentloaded")
+        except Exception as e:
+            return self._bad_target(e, target)
         return {"obs": f"Введено «{text[:60]}» в {target}"
                        + (" + Enter" if submit else ""),
                 "shot": self._shot()}

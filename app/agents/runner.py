@@ -154,7 +154,12 @@ async def run_step(role: str, task_text: str, memory_ctx: str) -> str:
                      + "Действуй. Отвечай только JSON.")},
     ]
     answer = ""
-    for _ in range(config.MAX_REACT_ITERS):
+    last_obs = ""
+    for it in range(config.MAX_REACT_ITERS):
+        if it == config.MAX_REACT_ITERS - 1:
+            msgs.append({"role": "user",
+                         "content": ("ПОСЛЕДНИЙ ХОД: инструменты вызывать нельзя. "
+                                     "Верни final с answer по уже собранным данным.")})
         cb, flush = token_cb(ROLE_NAMES[role])
         raw = await ollama_client.chat_stream(role, msgs,
                                               keep_alive=config.WORKER_KEEP_ALIVE,
@@ -188,6 +193,8 @@ async def run_step(role: str, task_text: str, memory_ctx: str) -> str:
                 obs, shot = await exec_tool(role, tool, targs)
         else:
             obs, shot = await exec_tool(role, tool, targs)
+        if obs and not obs.startswith("⛔"):
+            last_obs = obs
         if _broadcast:
             await _broadcast({"type": "action", "role": ROLE_NAMES[role],
                               "tool": tool, "obs": obs[:700], "shot": shot})
@@ -195,7 +202,9 @@ async def run_step(role: str, task_text: str, memory_ctx: str) -> str:
         msgs.append({"role": "assistant", "content": raw})
         msgs.append({"role": "user", "content": "Результат инструмента:\n" + obs[:6000]})
     else:
-        answer = answer or "Шаг не пришёл к выводу (лимит итераций)."
+        # лимит ходов: не теряем собранное, отдаём последние данные как результат
+        answer = answer or ("Шаг прерван по лимиту ходов. Последние полученные данные:\n"
+                            + last_obs[:1500])
     return answer
 
 
