@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import Any
+import threading
+from typing import Any, Self
 
 try:
     from openai import OpenAI
@@ -16,6 +17,33 @@ from .tools import SYSTEM_PROMPT, dumps, run_tool, tools
 
 DEFAULT_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_MODEL = "qwen2.5:7b-instruct"
+REQUEST_TIMEOUT = 900.0  # секунд; 7b на CPU может думать долго
+
+
+class _Spinner:
+    """Печатает точки, пока модель думает — чтобы консоль не выглядела зависшей."""
+
+    def __init__(self, message: str = "модель думает") -> None:
+        self.message = message
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def __enter__(self) -> Self:
+        print(f"\n   ⏳ {self.message}", end="", flush=True)
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+        return self
+
+    def _loop(self) -> None:
+        while not self._stop.wait(0.5):
+            print(".", end="", flush=True)
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+        print(" ✓" if exc_type is None else " ✗", flush=True)
+        return False
 
 
 def _config() -> tuple[str, str, str]:
@@ -46,7 +74,9 @@ def _assistant_payload(message: Any) -> dict[str, Any]:
 
 def chat() -> None:
     base_url, api_key, model = _config()
-    client = OpenAI(base_url=base_url, api_key=api_key)
+    client = OpenAI(
+        base_url=base_url, api_key=api_key, timeout=REQUEST_TIMEOUT, max_retries=1
+    )
 
     from .memory import MemorySession
 
@@ -60,6 +90,10 @@ def chat() -> None:
     print(f" API:     {base_url}")
     print(" Команды: exit — выход, /status — состояние, /reset — очистить диалог")
     print(" Пример:  «подключись к game.exe и найди 100 золота»")
+    print(
+        " Подсказка: первый запрос может занять 1-2 минуты (модель грузится в память)."
+    )
+    print("            Если очень медленно — возьми qwen2.5:3b-instruct.")
     print("-" * 62)
 
     while True:
@@ -95,12 +129,13 @@ def _run_turn(
 ) -> None:
     """Один ход: модель может несколько раз вызвать инструменты."""
     for _ in range(15):
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            tools=tools(),
-            temperature=0.2,
-        )
+        with _Spinner():
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=tools(),
+                temperature=0.2,
+            )
         message = response.choices[0].message
         messages.append(_assistant_payload(message))
 

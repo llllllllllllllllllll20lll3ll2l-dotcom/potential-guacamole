@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 
@@ -12,11 +13,17 @@ def main() -> None:
         description="ИИ-ассистент для правки значений в памяти офлайн-игр (Windows).",
     )
     parser.add_argument(
+        "--model",
+        help="переопределить модель, например qwen2.5:3b-instruct",
+    )
+    parser.add_argument(
         "--cli",
         action="store_true",
         help="режим без LLM: команды вручную (attach, scan, next, write...)",
     )
     args = parser.parse_args()
+    if args.model:
+        os.environ["GMA_MODEL"] = args.model
 
     if sys.platform != "win32":
         print("Внимание: доступ к памяти процесса работает только на Windows.")
