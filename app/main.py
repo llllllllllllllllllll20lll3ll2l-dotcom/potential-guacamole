@@ -133,18 +133,18 @@ async def ws(websocket: WebSocket):
     await websocket.accept()
     q: asyncio.Queue = asyncio.Queue(maxsize=500)
     _clients.add(q)
+    await websocket.send_json({
+        "type": "hello",
+        "health": await health(),
+    })
+
+    async def pump():
+        while True:
+            msg = await q.get()
+            await websocket.send_json(msg)
+
+    pump_task = asyncio.create_task(pump())
     try:
-        await websocket.send_json({
-            "type": "hello",
-            "health": await health(),
-        })
-
-        async def pump():
-            while True:
-                msg = await q.get()
-                await websocket.send_json(msg)
-
-        pump_task = asyncio.create_task(pump())
         while True:
             data = await websocket.receive_json()
             kind = data.get("type")
@@ -161,6 +161,7 @@ async def ws(websocket: WebSocket):
     except Exception:
         pass
     finally:
+        pump_task.cancel()
         _clients.discard(q)
 
 

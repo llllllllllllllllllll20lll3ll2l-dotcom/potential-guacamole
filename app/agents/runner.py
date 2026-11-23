@@ -32,6 +32,29 @@ async def log(line: str, kind: str = "info"):
         await _broadcast({"type": "log", "ts": ts, "line": line, "kind": kind})
 
 
+def token_cb(role_name: str):
+    """Колбэк стриминга: шлёт токены в интерфейс порциями (не чаще 4 раз/сек)."""
+    state = {"last": 0.0, "buf": ""}
+
+    async def cb(tok: str):
+        state["buf"] += tok
+        now = time.monotonic()
+        if now - state["last"] > 0.25 or len(state["buf"]) > 150:
+            state["last"] = now
+            text, state["buf"] = state["buf"], ""
+            if _broadcast:
+                await _broadcast({"type": "token", "role": role_name, "text": text})
+
+    async def flush():
+        if state["buf"] and _broadcast:
+            await _broadcast({"type": "token", "role": role_name, "text": state["buf"]})
+        state["buf"] = ""
+        if _broadcast:
+            await _broadcast({"type": "token_end", "role": role_name})
+
+    return cb, flush
+
+
 def parse_json(text: str) -> dict | None:
     m = re.search(r"\{.*\}", text or "", re.S)
     if not m:
@@ -132,7 +155,11 @@ async def run_step(role: str, task_text: str, memory_ctx: str) -> str:
     ]
     answer = ""
     for _ in range(config.MAX_REACT_ITERS):
-        raw = await ollama_client.chat(role, msgs, keep_alive=config.WORKER_KEEP_ALIVE)
+        cb, flush = token_cb(ROLE_NAMES[role])
+        raw = await ollama_client.chat_stream(role, msgs,
+                                              keep_alive=config.WORKER_KEEP_ALIVE,
+                                              on_token=cb)
+        await flush()
         data = parse_json(raw)
         if not data or "action" not in data:
             msgs.append({"role": "assistant", "content": raw or ""})
@@ -211,12 +238,14 @@ async def run_task(task: str):
                 mem = await rag.search(task, 3)
             except Exception:
                 mem = ""
-            raw = await ollama_client.chat(
+            cb, flush = token_cb("Оркестратор")
+            raw = await ollama_client.chat_stream(
                 "orchestrator",
                 [{"role": "system", "content": prompts.ORCH_PLANNER},
                  {"role": "user", "content": task +
                   (f"\nВоспоминания из памяти (RAG):\n{mem}" if mem else "")}],
-                keep_alive=config.ORCH_KEEP_ALIVE)
+                keep_alive=config.ORCH_KEEP_ALIVE, on_token=cb)
+            await flush()
             plan_data = parse_json(raw) or {}
             comment = str(plan_data.get("comment", ""))
             plan = [s for s in (plan_data.get("plan") or []) if isinstance(s, dict)]
@@ -257,14 +286,16 @@ async def run_task(task: str):
                                       "result": ans[:900]})
                 await log(f"✔ Шаг {i} ({ROLE_NAMES[role]}): {ans[:160]}", "step")
 
-            raw = await ollama_client.chat(
+            cb, flush = token_cb("Оркестратор")
+            raw = await ollama_client.chat_stream(
                 "orchestrator",
                 [{"role": "system", "content": prompts.ORCH_SUMMARIZER},
                  {"role": "user", "content":
                   f"Задача: {task}\n\nРЕЗУЛЬТАТЫ ШАГОВ:\n" +
                   "\n".join(f"{i}. [{ROLE_NAMES[r]}] {t} — {s}: {a}"
                             for i, r, t, s, a in results)}],
-                keep_alive=config.ORCH_KEEP_ALIVE)
+                keep_alive=config.ORCH_KEEP_ALIVE, on_token=cb)
+            await flush()
             summ = parse_json(raw) or {"status": "partial", "result": raw[:400], "report": raw}
             await finish(task, str(summ.get("report", "")), steps_log,
                          str(summ.get("status", "done")), str(summ.get("result", "")), t0)

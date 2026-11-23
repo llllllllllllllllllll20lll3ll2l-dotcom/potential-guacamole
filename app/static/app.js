@@ -3,6 +3,7 @@ let ws = null;
 let soundOn = true;
 let audioCtx = null;
 let running = false;
+const liveBubbles = {};   // роль -> элемент пузыря «мышления»
 
 const $ = (id) => document.getElementById(id);
 const feed = $("feed"), logEl = $("log");
@@ -31,6 +32,22 @@ function handle(m) {
     case "log":
       addLog(m.ts, m.line, m.kind);
       break;
+    case "token": {
+      let el = liveBubbles[m.role];
+      if (!el) {
+        addFeed(`<div class="msg live" id="live-${esc(m.role)}">🤔 <b>${esc(m.role)}</b> думает<span class="caret"></span><div class="t"></div></div>`);
+        el = liveBubbles[m.role] = document.getElementById("live-" + m.role);
+      }
+      el.querySelector(".t").textContent += m.text;
+      feed.scrollTop = feed.scrollHeight;
+      break;
+    }
+    case "token_end": {
+      const el = liveBubbles[m.role];
+      if (el) { el.classList.add("done"); const c = el.querySelector(".caret"); if (c) c.remove(); }
+      delete liveBubbles[m.role];
+      break;
+    }
     case "task_started":
       running = true; setSend();
       addFeed(`<div class="msg user">📨 <b>Твоя задача:</b> ${esc(m.task)}</div>`);

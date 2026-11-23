@@ -42,25 +42,55 @@ async def loaded_models() -> list[str]:
 
 
 async def chat(role: str, messages: list[dict], keep_alive: str | int | None = None) -> str:
+    return await chat_stream(role, messages, keep_alive=keep_alive, on_token=None)
+
+
+async def chat_stream(role: str, messages: list[dict],
+                      keep_alive: str | int | None = None,
+                      on_token=None) -> str:
+    """Чат с моделью; on_token(chunk) вызывается на каждом кусочке ответа (стриминг)."""
     model = config.MODELS.get(role, role)
     if config.DEMO_MODE:
-        return _demo_chat(model, messages)
+        full = _demo_chat(model, messages)
+        if on_token:
+            for i in range(0, len(full), 24):
+                await on_token(full[i:i + 24])
+        return full
     payload = {
         "model": model,
         "messages": messages,
-        "stream": False,
+        "stream": True,
         "format": "json",
         "options": {"temperature": 0.2, "num_ctx": 8192},
     }
     if keep_alive is not None:
         payload["keep_alive"] = keep_alive
+    parts: list[str] = []
     try:
-        data = await _post("/api/chat", payload)
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+            async with c.stream("POST", config.OLLAMA_URL + "/api/chat", json=payload) as r:
+                if r.status_code >= 400:
+                    body = (await r.aread()).decode(errors="replace")[:300]
+                    raise RuntimeError(f"Ollama {r.status_code}: {body}")
+                async for line in r.aiter_lines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        d = json.loads(line)
+                    except Exception:
+                        continue
+                    tok = (d.get("message") or {}).get("content") or ""
+                    if tok:
+                        parts.append(tok)
+                        if on_token:
+                            await on_token(tok)
     except RuntimeError:
-        # запасной минимальный запрос: вдруг сборка Ollama не любит format/keep_alive
+        # запасной минимальный запрос без стриминга
         data = await _post("/api/chat",
                            {"model": model, "messages": messages, "stream": False})
-    return data["message"]["content"]
+        return data["message"]["content"]
+    return "".join(parts)
 
 
 async def embed(text: str) -> list[float]:
