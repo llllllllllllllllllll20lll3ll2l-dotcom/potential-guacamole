@@ -1,8 +1,12 @@
-"""RAG-память: SQLite + векторы nomic-embed-text, поиск по смыслу, кнопка очистки."""
+"""RAG-память: SQLite + векторы nomic-embed-text, поиск по смыслу, кнопка очистки.
+
+Без внешних C-зависимостей: векторы храним как массивы float32 (модуль array),
+косинус считаем на чистом Python — работает на любой версии Python.
+"""
+import array
 import sqlite3
 import time
-
-import numpy as np
+from math import sqrt
 
 from .. import config, ollama_client
 
@@ -26,6 +30,23 @@ def count() -> int:
         return 0
 
 
+def _vec(blob: bytes) -> array.array:
+    a = array.array("f")
+    a.frombytes(blob)
+    return a
+
+
+def _norm(a: array.array) -> float:
+    return sqrt(sum(x * x for x in a))
+
+
+def _cos(a: array.array, b: array.array) -> float:
+    na, nb = _norm(a), _norm(b)
+    if not na or not nb:
+        return 0.0
+    return sum(x * y for x, y in zip(a, b)) / (na * nb)
+
+
 async def add(text: str, meta: str = "") -> None:
     text = (text or "").strip()
     if not text:
@@ -33,21 +54,18 @@ async def add(text: str, meta: str = "") -> None:
     vec = await ollama_client.embed(text[:2000])
     if not vec:
         return
-    blob = np.asarray(vec, dtype=np.float32).tobytes()
+    blob = array.array("f", vec).tobytes()
     with _conn() as c:
         c.execute("INSERT INTO chunks(ts, meta, text, vec) VALUES (?,?,?,?)",
                   (time.time(), meta, text[:4000], blob))
 
 
 def search_sync(query_vec: list[float], k: int = 4) -> list[str]:
-    q = np.asarray(query_vec, dtype=np.float32)
-    qn = q / (np.linalg.norm(q) or 1.0)
+    q = array.array("f", query_vec)
     rows = []
     with _conn() as c:
         for text, blob in c.execute("SELECT text, vec FROM chunks"):
-            v = np.frombuffer(blob, dtype=np.float32)
-            vn = v / (np.linalg.norm(v) or 1.0)
-            rows.append((float(np.dot(qn, vn)), text))
+            rows.append((_cos(q, _vec(blob)), text))
     rows.sort(key=lambda x: -x[0])
     return [t for s, t in rows[:k] if s > 0.15]
 
@@ -59,8 +77,7 @@ async def search(query: str, k: int = 4) -> str:
     vec = await ollama_client.embed(query[:2000])
     if not vec:
         return ""
-    hits = search_sync(vec, k)
-    return "\n---\n".join(hits)
+    return "\n---\n".join(search_sync(vec, k))
 
 
 def clear() -> int:
