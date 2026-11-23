@@ -2,6 +2,7 @@
 
 Этот модуль тестируется на любой ОС — вся работа с памятью процесса в memory.py.
 """
+
 from __future__ import annotations
 
 import re
@@ -148,7 +149,9 @@ def find_all(buffer: bytes, needle: bytes, base: int = 0) -> list[int]:
         start = index + 1
 
 
-def find_pattern_all(buffer: bytes, regex: re.Pattern[bytes], base: int = 0) -> list[int]:
+def find_pattern_all(
+    buffer: bytes, regex: re.Pattern[bytes], base: int = 0
+) -> list[int]:
     """Все смещения, соответствующие AOB-паттерну."""
     return [base + match.start() for match in regex.finditer(buffer)]
 
@@ -156,7 +159,7 @@ def find_pattern_all(buffer: bytes, regex: re.Pattern[bytes], base: int = 0) -> 
 def parse_address(value: Any) -> int:
     """Принимает int, '0x7ff6...', '7ff6...' (hex) или '140701...'(dec)."""
     if isinstance(value, bool):
-        raise ValueError("Адрес должен быть числом или строкой")
+        raise TypeError("Адрес должен быть числом или строкой")
     if isinstance(value, int):
         return value
     text = str(value).strip().lower().replace("`", "")

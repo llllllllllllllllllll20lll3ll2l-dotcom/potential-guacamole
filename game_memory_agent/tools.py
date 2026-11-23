@@ -3,6 +3,7 @@
 Модуль не импортирует memory.py на верхнем уровне, чтобы схемы можно было
 тестировать на любой ОС — реальный доступ к памяти нужен только при вызове.
 """
+
 from __future__ import annotations
 
 import json
@@ -197,9 +198,7 @@ def run_tool(session: Any, name: str, args: dict[str, Any]) -> dict[str, Any]:
         return {"processes": list_processes()}
 
     if name == "attach":
-        return session.attach(
-            name=args.get("name"), pid=args.get("pid")
-        )
+        return session.attach(name=args.get("name"), pid=args.get("pid"))
 
     if name == "status":
         return session.status()

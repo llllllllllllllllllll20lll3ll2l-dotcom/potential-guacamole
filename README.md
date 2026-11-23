@@ -177,10 +177,11 @@ tests/                      pytest (работают на любой ОС)
 ## Проверка установки
 
 ```bat
+pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-Должно быть `20 passed`.
+Должно быть `31 passed`.
 
 ## Если что-то не работает
 

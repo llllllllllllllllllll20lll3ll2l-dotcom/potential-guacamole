@@ -1,4 +1,5 @@
 """Точка входа: `python main.py` — чат с LLM, `python main.py --cli` — без LLM."""
+
 from __future__ import annotations
 
 import argparse

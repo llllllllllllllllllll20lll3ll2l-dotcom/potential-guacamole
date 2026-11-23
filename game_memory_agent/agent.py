@@ -1,4 +1,5 @@
 """Чат с LLM через OpenAI-совместимый API (Ollama, OpenRouter, DeepSeek, OpenAI...)."""
+
 from __future__ import annotations
 
 import json
@@ -89,7 +90,9 @@ def chat() -> None:
             print(f"[!] {type(error).__name__}: {error}")
 
 
-def _run_turn(client: OpenAI, model: str, messages: list[dict[str, Any]], session: Any) -> None:
+def _run_turn(
+    client: OpenAI, model: str, messages: list[dict[str, Any]], session: Any
+) -> None:
     """Один ход: модель может несколько раз вызвать инструменты."""
     for _ in range(15):
         response = client.chat.completions.create(

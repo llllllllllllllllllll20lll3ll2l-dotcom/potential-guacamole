@@ -1,12 +1,19 @@
 """Проверяем цикл agent._run_turn на фейковом OpenAI-клиенте."""
+
 from types import SimpleNamespace
 
-from game_memory_agent.agent import _run_turn, _assistant_payload
+from game_memory_agent.agent import _assistant_payload, _run_turn
 
 
 class FakeSession:
     def status(self):
-        return {"attached": False, "pid": None, "name": None, "candidates": 0, "frozen": []}
+        return {
+            "attached": False,
+            "pid": None,
+            "name": None,
+            "candidates": 0,
+            "frozen": [],
+        }
 
 
 def _message(content=None, tool_calls=None):
@@ -30,7 +37,9 @@ class FakeClient:
         class Completions:
             def create(self, **kwargs):
                 client.requests.append(kwargs)
-                return SimpleNamespace(choices=[SimpleNamespace(message=client.responses.pop(0))])
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=client.responses.pop(0))]
+                )
 
         self.chat = SimpleNamespace(completions=Completions())
 
@@ -43,7 +52,10 @@ def test_turn_with_tool_call():
             _message(content="Состояние: не подключены."),
         ]
     )
-    messages = [{"role": "system", "content": "sys"}, {"role": "user", "content": "статус"}]
+    messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "статус"},
+    ]
 
     _run_turn(client, "test-model", messages, session)
 

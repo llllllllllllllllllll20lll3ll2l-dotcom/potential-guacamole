@@ -1,4 +1,5 @@
 """Проверяем диспетчер инструментов на фейковой сессии — Windows не нужен."""
+
 import pytest
 
 from game_memory_agent.tools import SYSTEM_PROMPT, dumps, run_tool, tools
@@ -82,9 +83,7 @@ def test_dispatch_read():
 
 def test_dispatch_freeze_unfreeze():
     session = FakeSession()
-    run_tool(
-        session, "freeze", {"address": 0x1000, "dtype": "i32", "value": 100}
-    )
+    run_tool(session, "freeze", {"address": 0x1000, "dtype": "i32", "value": 100})
     assert session.calls[-1] == ("freeze", 0x1000, 100, "i32")
     run_tool(session, "unfreeze", {})
     assert session.calls[-1] == ("unfreeze", None)

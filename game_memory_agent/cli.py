@@ -1,4 +1,5 @@
 """CLI без LLM: команды вручную. Удобно для отладки и как запасной вариант."""
+
 from __future__ import annotations
 
 from .core import parse_address

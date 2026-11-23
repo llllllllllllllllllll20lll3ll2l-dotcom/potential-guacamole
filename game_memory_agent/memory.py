@@ -3,20 +3,18 @@
 Модуль импортируется только на Windows (на других ОС падает с понятной ошибкой).
 Все вызовы WinAPI идут с явными argtypes/restype — это критично на x64.
 """
+
 from __future__ import annotations
 
 import ctypes
 import sys
 import threading
 import time
+from collections.abc import Iterator
 from ctypes import wintypes
-from typing import Any, Iterator
+from typing import Any
 
-if sys.platform != "win32":
-    raise OSError(
-        "Доступ к памяти процесса работает только на Windows. "
-        "На Linux используйте scanmem/GameConqueror."
-    )
+IS_WINDOWS = sys.platform == "win32"
 
 from .core import (
     find_all,
@@ -29,7 +27,7 @@ from .core import (
     value_size,
 )
 
-k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+k32 = ctypes.WinDLL("kernel32", use_last_error=True) if IS_WINDOWS else None
 
 # --- Константы WinAPI -------------------------------------------------------
 PROCESS_QUERY_INFORMATION = 0x0400
@@ -37,7 +35,10 @@ PROCESS_VM_READ = 0x0010
 PROCESS_VM_WRITE = 0x0020
 PROCESS_VM_OPERATION = 0x0008
 PROCESS_ALL = (
-    PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION
+    PROCESS_QUERY_INFORMATION
+    | PROCESS_VM_READ
+    | PROCESS_VM_WRITE
+    | PROCESS_VM_OPERATION
 )
 
 MEM_COMMIT = 0x1000
@@ -81,50 +82,53 @@ class PROCESSENTRY32W(ctypes.Structure):
     ]
 
 
-# --- Прототипы функций (обязательно: иначе ctypes обрежет 64-битные указатели) ---
-k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-k32.OpenProcess.restype = wintypes.HANDLE
+if k32 is not None:
+    # --- Прототипы функций (обязательно: иначе ctypes обрежет 64-битные указатели) ---
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.OpenProcess.restype = wintypes.HANDLE
 
-k32.CloseHandle.argtypes = [wintypes.HANDLE]
-k32.CloseHandle.restype = wintypes.BOOL
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    k32.CloseHandle.restype = wintypes.BOOL
 
-k32.VirtualQueryEx.argtypes = [
-    wintypes.HANDLE,
-    ctypes.c_void_p,
-    ctypes.POINTER(MEMORY_BASIC_INFORMATION),
-    ctypes.c_size_t,
-]
-k32.VirtualQueryEx.restype = ctypes.c_size_t
+    k32.VirtualQueryEx.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        ctypes.POINTER(MEMORY_BASIC_INFORMATION),
+        ctypes.c_size_t,
+    ]
+    k32.VirtualQueryEx.restype = ctypes.c_size_t
 
-k32.ReadProcessMemory.argtypes = [
-    wintypes.HANDLE,
-    ctypes.c_void_p,
-    ctypes.c_void_p,
-    ctypes.c_size_t,
-    ctypes.POINTER(ctypes.c_size_t),
-]
-k32.ReadProcessMemory.restype = wintypes.BOOL
+    k32.ReadProcessMemory.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+    ]
+    k32.ReadProcessMemory.restype = wintypes.BOOL
 
-k32.WriteProcessMemory.argtypes = [
-    wintypes.HANDLE,
-    ctypes.c_void_p,
-    ctypes.c_void_p,
-    ctypes.c_size_t,
-    ctypes.POINTER(ctypes.c_size_t),
-]
-k32.WriteProcessMemory.restype = wintypes.BOOL
+    k32.WriteProcessMemory.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+    ]
+    k32.WriteProcessMemory.restype = wintypes.BOOL
 
-k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
-k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
 
-k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
-k32.Process32FirstW.restype = wintypes.BOOL
-k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
-k32.Process32NextW.restype = wintypes.BOOL
+    k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.Process32FirstW.restype = wintypes.BOOL
+    k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.Process32NextW.restype = wintypes.BOOL
 
 
 def list_processes() -> list[dict[str, Any]]:
     """Список процессов через CreateToolhelp32Snapshot."""
+    if k32 is None:
+        raise RuntimeError("Работает только на Windows.")
     snapshot = k32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
     if snapshot == INVALID_HANDLE_VALUE or not snapshot:
         raise OSError(ctypes.get_last_error(), "CreateToolhelp32Snapshot")
@@ -139,6 +143,23 @@ def list_processes() -> list[dict[str, Any]]:
         return processes
     finally:
         k32.CloseHandle(snapshot)
+
+
+def find_processes(processes: list[dict[str, Any]], name: str) -> list[dict[str, Any]]:
+    """Ищет процесс по имени: принимает 'game', 'game.exe' и полный путь."""
+    wanted = name.replace("/", "\\").split("\\")[-1].strip().lower()
+    if not wanted.endswith(".exe"):
+        wanted += ".exe"
+    matches = [p for p in processes if p["name"].lower() == wanted]
+    if not matches:
+        # частичное совпадение по имени без .exe
+        stem = wanted[:-4]
+        matches = [
+            p
+            for p in processes
+            if p["name"].lower().startswith(stem) and p["name"].lower().endswith(".exe")
+        ]
+    return matches
 
 
 class MemorySession:
@@ -156,23 +177,16 @@ class MemorySession:
     # --- подключение -------------------------------------------------------
     def _require(self) -> None:
         if not self.handle:
-            raise RuntimeError("Сначала подключись к процессу: attach(name=... | pid=...)")
+            raise RuntimeError(
+                "Сначала подключись к процессу: attach(name=... | pid=...)"
+            )
 
     def attach(self, name: str | None = None, pid: int | None = None) -> dict[str, Any]:
+        if k32 is None:
+            raise RuntimeError("Доступ к памяти процесса работает только на Windows.")
         processes = list_processes()
         if pid is None and name is not None:
-            wanted = name.strip().lower()
-            if not wanted.endswith(".exe"):
-                wanted += ".exe"
-            matches = [p for p in processes if p["name"].lower() == wanted]
-            if not matches:
-                # пробуем частичное совпадение по имени без .exe
-                stem = wanted[:-4]
-                matches = [
-                    p
-                    for p in processes
-                    if p["name"].lower().startswith(stem) and p["name"].lower().endswith(".exe")
-                ]
+            matches = find_processes(processes, name)
             if not matches:
                 raise ValueError(
                     f"Процесс {name!r} не найден. Запусти игру или укажи pid."
@@ -219,7 +233,10 @@ class MemorySession:
         mbi = MEMORY_BASIC_INFORMATION()
         while address < MAX_ADDRESS:
             result = k32.VirtualQueryEx(
-                self.handle, ctypes.c_void_p(address), ctypes.byref(mbi), ctypes.sizeof(mbi)
+                self.handle,
+                ctypes.c_void_p(address),
+                ctypes.byref(mbi),
+                ctypes.sizeof(mbi),
             )
             if result == 0:
                 break
@@ -252,7 +269,9 @@ class MemorySession:
         )
         if not ok:
             error = ctypes.get_last_error()
-            raise MemoryError(f"ReadProcessMemory({hex(address)}, {size}) ошибка {error}")
+            raise MemoryError(
+                f"ReadProcessMemory({hex(address)}, {size}) ошибка {error}"
+            )
         return buffer.raw[: bytes_read.value]
 
     def write(self, address: int, data: bytes) -> None:
@@ -295,7 +314,9 @@ class MemorySession:
             "truncated": truncated,
         }
 
-    def scan(self, value: Any, dtype: str, max_results: int = 200_000) -> dict[str, Any]:
+    def scan(
+        self, value: Any, dtype: str, max_results: int = 200_000
+    ) -> dict[str, Any]:
         """Первое сканирование по всему адресному пространству."""
         dtype = normalize_dtype(dtype)
         if dtype == "aob":
@@ -314,7 +335,9 @@ class MemorySession:
             while offset < region_size:
                 chunk = min(self.CHUNK_SIZE, region_size - offset)
                 try:
-                    data = self.read(base + offset, min(chunk + overlap, region_size - offset))
+                    data = self.read(
+                        base + offset, min(chunk + overlap, region_size - offset)
+                    )
                 except MemoryError:
                     offset += chunk
                     continue
@@ -382,7 +405,9 @@ class MemorySession:
             while offset < region_size:
                 chunk = min(self.CHUNK_SIZE, region_size - offset)
                 try:
-                    data = self.read(base + offset, min(chunk + overlap, region_size - offset))
+                    data = self.read(
+                        base + offset, min(chunk + overlap, region_size - offset)
+                    )
                 except MemoryError:
                     offset += chunk
                     continue
@@ -464,7 +489,9 @@ class Freezer:
         if self._thread is not None and self._thread.is_alive():
             return
         self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, name="memory-freezer", daemon=True)
+        self._thread = threading.Thread(
+            target=self._loop, name="memory-freezer", daemon=True
+        )
         self._thread.start()
 
     def _loop(self) -> None:
